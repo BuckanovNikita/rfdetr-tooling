@@ -20,7 +20,14 @@ dependencies = [
     "tqdm>=4.66.0",
     "Pillow>=10.0.0",
     "cveta2",
+    "tensorboard>=2.18.0",
 ]
+
+[project.scripts]
+rfdetr-tool = "rfdetr_tooling.cli:main"
+
+[project.optional-dependencies]
+clearml = ["clearml>=1.16.0"]
 
 [dependency-groups]
 dev = [
@@ -43,6 +50,8 @@ ignore = [
     "D213",    # multi-line-summary-second-line - conflicts with D212
     "D203",    # one-blank-line-before-class - conflicts with D211
     "PLR2004", # magic-value-comparison
+    "RUF002", # ambiguous-unicode-character-docstring - Russian comments
+    "RUF003", # ambiguous-unicode-character-comment - Russian comments
 ]
 fixable = ["ALL"]
 
@@ -56,7 +65,7 @@ warn_return_any = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = ["rfdetr.*", "supervision.*", "pycocotools.*"]
+module = ["rfdetr.*", "supervision.*", "pycocotools.*", "clearml.*"]
 ignore_missing_imports = true
 
 [tool.uv.sources]
