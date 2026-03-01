@@ -1,6 +1,6 @@
-# Training RF-DETR Models
+# Обучение моделей RF-DETR
 
-## Quick start
+## Быстрый старт
 
 ```python
 from rfdetr_tooling.train import train
@@ -8,9 +8,9 @@ from rfdetr_tooling.train import train
 train("path/to/dataset", epochs=50, batch_size=8)
 ```
 
-This trains an RF-DETR Base model for 50 epochs. The dataset directory must be in COCO or YOLO format — rfdetr auto-detects which one.
+Обучает модель RF-DETR Base в течение 50 эпох. Директория датасета должна быть в формате COCO или YOLO — rfdetr определяет формат автоматически.
 
-## `train()` function
+## Функция `train()`
 
 ```python
 def train(
@@ -20,39 +20,39 @@ def train(
     epochs: int = 100,
     batch_size: int = 4,
     output_dir: str | Path = "output",
-    **kwargs,  # passed through to rfdetr TrainConfig
+    **kwargs,  # передаются в rfdetr TrainConfig
 ) -> None
 ```
 
-### Parameters
+### Параметры
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `dataset_dir` | `str \| Path` | *required* | Path to dataset in COCO or YOLO format |
-| `variant` | `str` | `"base"` | Model variant (see table below) |
-| `epochs` | `int` | `100` | Number of training epochs |
-| `batch_size` | `int` | `4` | Batch size per step |
-| `output_dir` | `str \| Path` | `"output"` | Directory for checkpoints and logs |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `dataset_dir` | `str \| Path` | *обязательный* | Путь к датасету в формате COCO или YOLO |
+| `variant` | `str` | `"base"` | Вариант модели (см. таблицу ниже) |
+| `epochs` | `int` | `100` | Количество эпох обучения |
+| `batch_size` | `int` | `4` | Размер батча |
+| `output_dir` | `str \| Path` | `"output"` | Директория для чекпоинтов и логов |
 
-All additional keyword arguments are forwarded to rfdetr's `TrainConfig`.
+Все дополнительные именованные аргументы передаются в `TrainConfig` rfdetr.
 
-## Model variants
+## Варианты моделей
 
-| Variant | Class | Resolution | Encoder |
-|---------|-------|-----------|---------|
+| Вариант | Класс | Разрешение | Энкодер |
+|---------|-------|------------|---------|
 | `"nano"` | `RFDETRNano` | 384 | DINOv2-S (windowed) |
 | `"small"` | `RFDETRSmall` | 512 | DINOv2-S (windowed) |
 | `"base"` | `RFDETRBase` | 560 | DINOv2-S (windowed) |
 | `"medium"` | `RFDETRMedium` | 576 | DINOv2-S (windowed) |
 | `"large"` | `RFDETRLarge` | 704 | DINOv2-S (windowed) |
 
-Smaller variants train faster and use less VRAM. Larger variants are more accurate.
+Меньшие варианты обучаются быстрее и потребляют меньше VRAM. Большие варианты дают более высокую точность.
 
-## Dataset format
+## Формат датасета
 
-rfdetr auto-detects COCO vs YOLO format based on directory structure.
+rfdetr автоматически определяет формат (COCO или YOLO) по структуре директории.
 
-### COCO format
+### Формат COCO
 
 ```
 dataset/
@@ -67,9 +67,9 @@ dataset/
     ...
 ```
 
-The JSON file follows the COCO annotation format with `bbox: [x, y, width, height]` (top-left corner + size, in pixels).
+JSON-файл следует формату аннотаций COCO: `bbox: [x, y, width, height]` (верхний левый угол + размер, в пикселях).
 
-### YOLO format
+### Формат YOLO
 
 ```
 dataset/
@@ -90,9 +90,9 @@ dataset/
       ...
 ```
 
-Label files use YOLO normalized format: `class_id xc yc w h` (center + size, values in [0, 1]).
+Файлы меток используют нормализованный формат YOLO: `class_id xc yc w h` (центр + размер, значения в [0, 1]).
 
-`data.yaml` specifies class names and paths:
+`data.yaml` задает имена классов и пути:
 
 ```yaml
 train: train/images
@@ -101,86 +101,86 @@ nc: 3
 names: ["cat", "dog", "bird"]
 ```
 
-## rfdetr pass-through parameters
+## Параметры rfdetr (pass-through)
 
-These are forwarded via `**kwargs` to rfdetr's `TrainConfig`.
+Передаются через `**kwargs` в `TrainConfig` rfdetr.
 
-### Learning rate
+### Скорость обучения
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `lr` | `float` | `1e-4` | Decoder learning rate |
-| `lr_encoder` | `float` | `1.5e-4` | Encoder (backbone) learning rate |
-| `lr_drop` | `int` | `100` | Epoch to drop learning rate |
-| `lr_vit_layer_decay` | `float` | `0.8` | Layer-wise LR decay for ViT encoder |
-| `lr_component_decay` | `float` | `0.7` | Component-wise LR decay |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `lr` | `float` | `1e-4` | Скорость обучения декодера |
+| `lr_encoder` | `float` | `1.5e-4` | Скорость обучения энкодера (backbone) |
+| `lr_drop` | `int` | `100` | Эпоха снижения скорости обучения |
+| `lr_vit_layer_decay` | `float` | `0.8` | Послойное затухание LR для ViT-энкодера |
+| `lr_component_decay` | `float` | `0.7` | Покомпонентное затухание LR |
 
-### Optimization
+### Оптимизация
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `weight_decay` | `float` | `1e-4` | Weight decay |
-| `grad_accum_steps` | `int` | `4` | Gradient accumulation steps |
-| `warmup_epochs` | `float` | `0.0` | Warmup epochs (0 = disabled) |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `weight_decay` | `float` | `1e-4` | Регуляризация весов |
+| `grad_accum_steps` | `int` | `4` | Шаги накопления градиентов |
+| `warmup_epochs` | `float` | `0.0` | Эпохи прогрева (0 = выключено) |
 
 ### EMA
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `use_ema` | `bool` | `True` | Use exponential moving average |
-| `ema_decay` | `float` | `0.993` | EMA decay rate |
-| `ema_tau` | `int` | `100` | EMA time constant |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `use_ema` | `bool` | `True` | Использовать экспоненциальное скользящее среднее |
+| `ema_decay` | `float` | `0.993` | Коэффициент затухания EMA |
+| `ema_tau` | `int` | `100` | Временная константа EMA |
 
-### Data
+### Данные
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `num_workers` | `int` | `2` | Dataloader workers |
-| `multi_scale` | `bool` | `True` | Multi-scale training augmentation |
-| `resolution` | `int` | *(per variant)* | Input resolution (overrides variant default) |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `num_workers` | `int` | `2` | Количество воркеров загрузчика данных |
+| `multi_scale` | `bool` | `True` | Мультимасштабная аугментация |
+| `resolution` | `int` | *(зависит от варианта)* | Разрешение входа (переопределяет значение варианта) |
 
-### Checkpointing
+### Чекпоинты
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `resume` | `str \| None` | `None` | Path to checkpoint to resume from |
-| `checkpoint_interval` | `int` | `10` | Save checkpoint every N epochs |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `resume` | `str \| None` | `None` | Путь к чекпоинту для продолжения обучения |
+| `checkpoint_interval` | `int` | `10` | Сохранять чекпоинт каждые N эпох |
 
-### Early stopping
+### Ранняя остановка
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `early_stopping` | `bool` | `False` | Enable early stopping |
-| `early_stopping_patience` | `int` | `10` | Epochs without improvement before stopping |
-| `early_stopping_min_delta` | `float` | `0.001` | Minimum improvement threshold |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `early_stopping` | `bool` | `False` | Включить раннюю остановку |
+| `early_stopping_patience` | `int` | `10` | Эпох без улучшения до остановки |
+| `early_stopping_min_delta` | `float` | `0.001` | Минимальный порог улучшения |
 
-### Logging
+### Логирование
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `tensorboard` | `bool` | `True` | Log to TensorBoard |
-| `wandb` | `bool` | `False` | Log to Weights & Biases |
-| `mlflow` | `bool` | `False` | Log to MLflow |
-| `clearml` | `bool` | `False` | Log to ClearML |
-| `project` | `str \| None` | `None` | Project name for experiment trackers |
-| `run` | `str \| None` | `None` | Run name for experiment trackers |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `tensorboard` | `bool` | `True` | Логирование в TensorBoard |
+| `wandb` | `bool` | `False` | Логирование в Weights & Biases |
+| `mlflow` | `bool` | `False` | Логирование в MLflow |
+| `clearml` | `bool` | `False` | Логирование в ClearML |
+| `project` | `str \| None` | `None` | Имя проекта для трекеров экспериментов |
+| `run` | `str \| None` | `None` | Имя запуска для трекеров экспериментов |
 
-### Device & precision
+### Устройство и точность
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `device` | `str` | `"auto"` | Device: `"auto"`, `"cpu"`, `"cuda"`, or `"mps"` |
-| `amp` | `bool` | `True` | Automatic mixed precision |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `device` | `str` | `"auto"` | Устройство: `"auto"`, `"cpu"`, `"cuda"` или `"mps"` |
+| `amp` | `bool` | `True` | Автоматическая смешанная точность |
 
-### Advanced
+### Продвинутые
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `gradient_checkpointing` | `bool` | `False` | Trade compute for memory savings |
-| `drop_path` | `float` | `0.0` | Drop path rate for regularization |
-| `group_detr` | `int` | `13` | Number of DETR groups |
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `gradient_checkpointing` | `bool` | `False` | Экономия памяти за счет пересчета активаций |
+| `drop_path` | `float` | `0.0` | Drop path для регуляризации |
+| `group_detr` | `int` | `13` | Количество групп DETR |
 
-## Full example
+## Полный пример
 
 ```python
 from rfdetr_tooling.train import train
