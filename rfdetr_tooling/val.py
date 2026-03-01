@@ -32,15 +32,15 @@ def _find_val_dir(data: str) -> Path | None:
 
 def _load_coco_annotations(
     val_dir: Path,
-) -> tuple[dict[str, sv.Detections], list[Path]]:
+) -> tuple[dict[str, sv.Detections], list[Path], dict[int, str]]:
     """Загружает GT-аннотации из COCO JSON.
 
-    Возвращает dict {filename: Detections} и список путей к изображениям.
+    Возвращает (dict {filename: Detections}, список путей, dict {cat_id: name}).
     """
     ann_file = val_dir / "_annotations.coco.json"
     if not ann_file.exists():
         logger.error(f"Файл аннотаций не найден: {ann_file}")
-        return {}, []
+        return {}, [], {}
 
     with ann_file.open() as f:
         coco = json.load(f)
@@ -54,9 +54,7 @@ def _load_coco_annotations(
             "height": img["height"],
         }
 
-    # Маппинг category_id -> contiguous index
-    cat_ids = sorted({c["id"] for c in coco["categories"]})
-    cat_id_to_idx = {cid: idx for idx, cid in enumerate(cat_ids)}
+    gt_cat_names: dict[int, str] = {c["id"]: c["name"] for c in coco["categories"]}
 
     # Группировка аннотаций по image_id
     img_anns: dict[int, list[dict[str, Any]]] = {}
@@ -83,14 +81,52 @@ def _load_coco_annotations(
         for ann in anns:
             x, y, w, h = ann["bbox"]
             bboxes.append([x, y, x + w, y + h])
-            class_ids.append(cat_id_to_idx[ann["category_id"]])
+            class_ids.append(ann["category_id"])
 
         gt_map[fname] = sv.Detections(
             xyxy=np.array(bboxes, dtype=np.float32),
             class_id=np.array(class_ids, dtype=int),
         )
 
-    return gt_map, image_paths
+    return gt_map, image_paths, gt_cat_names
+
+
+def _build_pred_to_gt_map(
+    model_class_names: dict[int, str],
+    gt_cat_names: dict[int, str],
+) -> dict[int, int]:
+    """Маппинг pred_class_id → gt_category_id через совпадение имён классов."""
+    name_to_gt_id: dict[str, int] = {name: cid for cid, name in gt_cat_names.items()}
+    return {
+        pred_id: name_to_gt_id[name]
+        for pred_id, name in model_class_names.items()
+        if name in name_to_gt_id
+    }
+
+
+def _remap_class_ids(
+    detections: sv.Detections,
+    mapping: dict[int, int],
+) -> sv.Detections:
+    """Переводит class_id детекций по маппингу, убирая классы без соответствия."""
+    if detections.class_id is None or len(detections) == 0:
+        return detections
+
+    new_ids = np.array([mapping.get(int(cid), -1) for cid in detections.class_id])
+    keep = new_ids >= 0
+    if not keep.all():
+        detections = sv.Detections(
+            xyxy=detections.xyxy[keep],
+            confidence=(
+                detections.confidence[keep]
+                if detections.confidence is not None
+                else None
+            ),
+            class_id=new_ids[keep],
+        )
+    else:
+        detections.class_id = new_ids
+    return detections
 
 
 def val_from_config(config: ValConfig) -> None:
@@ -102,13 +138,15 @@ def val_from_config(config: ValConfig) -> None:
         )
         return
 
-    gt_map, image_paths = _load_coco_annotations(val_dir)
+    gt_map, image_paths, gt_cat_names = _load_coco_annotations(val_dir)
     if not image_paths:
         logger.error("Нет изображений для валидации")
         return
 
     model_cls = _get_model_class(config.variant)
     model = model_cls(pretrain_weights=config.weights)
+
+    pred_to_gt = _build_pred_to_gt_map(model.class_names, gt_cat_names)
 
     logger.info(
         f"Валидация: {len(image_paths)} изображений, "
@@ -121,6 +159,7 @@ def val_from_config(config: ValConfig) -> None:
     for img_path in image_paths:
         image = Image.open(img_path).convert("RGB")
         detections: sv.Detections = model.predict(image, threshold=config.threshold)
+        detections = _remap_class_ids(detections, pred_to_gt)
 
         fname = img_path.name
         gt = gt_map.get(fname, sv.Detections.empty())
