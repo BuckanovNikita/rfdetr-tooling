@@ -209,3 +209,20 @@ __marimo__/
 # Test data and outputs
 .test_data/
 .test_output/
+
+# Model weights
+*.pth
+
+# Training outputs
+output/
+coco8_output/
+coco8_predictions/
+
+# Datasets
+coco8/
+
+# Notebooks
+*.ipynb
+
+# Claude Code
+.claude/

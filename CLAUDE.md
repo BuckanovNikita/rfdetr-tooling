@@ -20,7 +20,6 @@ uv run mypy .              # type check
 
 ## Key Constraints
 
-- **PyTorch**: rfdetr requires `torch<=2.8.0` — do not upgrade beyond this
 - **rfdetr API**: training uses `model.train(dataset_dir=..., epochs=..., batch_size=..., ...)` — rfdetr auto-detects COCO vs YOLO format
 - **COCO format**: `train/_annotations.coco.json` + images in same dir; `valid/` same structure
 - **YOLO format**: `data.yaml` + `train/images/`, `train/labels/`, `valid/images/`, `valid/labels/`
