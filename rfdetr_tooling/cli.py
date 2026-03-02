@@ -1,7 +1,7 @@
 """CLI entry point для rfdetr-tooling.
 
 Синтаксис: rfdetr-tool <command> [key=value ...]
-Команды: train, val, predict, cfg
+Команды: train, val, predict, cfg, test
 """
 
 from __future__ import annotations
@@ -43,6 +43,7 @@ rfdetr-tool — CLI для тренировки, валидации и инфе�
   val      Валидация на val-сете (mAP)
   predict  Инференс на изображениях
   cfg      Генерация дефолтного YAML-конфига
+  test     Smoke-тесты CLI, линтеров и mypy
 
 Примеры:
   rfdetr-tool train data=./dataset variant=base epochs=100 batch_size=8
@@ -223,10 +224,16 @@ def main(argv: list[str] | None = None) -> None:
         _cmd_cfg(overrides)
         return
 
+    if command == "test":
+        from rfdetr_tooling.test_runner import run_tests  # noqa: PLC0415
+
+        run_tests(overrides)
+        return
+
     if command not in _COMMANDS:
         logger.error(
             f"Неизвестная команда: {command!r}. "
-            f"Допустимые: {', '.join([*_COMMANDS, 'cfg'])}"
+            f"Допустимые: {', '.join([*_COMMANDS, 'cfg', 'test'])}"
         )
         sys.exit(1)
 
