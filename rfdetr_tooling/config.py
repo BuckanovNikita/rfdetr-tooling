@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 Variant = Literal["nano", "small", "base", "medium", "large"]
 
@@ -56,6 +56,10 @@ class TrainConfig(BaseModel):
     clearml: bool = False
     project: str | None = None
     run: str | None = None
+
+    # Распределённое обучение (DDP)
+    gpus: int = Field(default=1, ge=1)
+    sync_bn: bool = True
 
     # Прочее
     gradient_checkpointing: bool = False

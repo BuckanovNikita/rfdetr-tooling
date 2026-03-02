@@ -116,6 +116,12 @@ def _build_test_catalog(output_dir: Path) -> list[TestCase]:
             category="cli",
         ),
         TestCase(
+            name="train_gpus_invalid",
+            cmd=["rfdetr-tool", "train", "data=x", "gpus=0"],
+            expect_exit=1,
+            category="cli",
+        ),
+        TestCase(
             name="bad_command",
             cmd=["rfdetr-tool", "badcommand"],
             expect_exit=1,
