@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, Literal
 
 import numpy as np
 import supervision as sv
@@ -13,9 +13,6 @@ from PIL import Image
 from supervision.metrics import MeanAveragePrecision
 
 from rfdetr_tooling.train import _get_model_class
-
-if TYPE_CHECKING:
-    from rfdetr_tooling.config import ValConfig
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -129,13 +126,31 @@ def _remap_class_ids(
     return detections
 
 
-def val_from_config(config: ValConfig) -> None:
-    """Валидация RF-DETR из pydantic-конфига."""
-    val_dir = _find_val_dir(config.data)
+def val(  # noqa: PLR0913
+    data: str,
+    weights: str,
+    *,
+    variant: Literal["nano", "small", "base", "medium", "large"] = "base",
+    threshold: float = 0.5,
+    device: Literal["auto", "cpu", "cuda", "mps"] = "auto",
+    batch_size: int = 4,  # noqa: ARG001
+    **model_extra: Any,  # noqa: ANN401
+) -> None:
+    """Валидация RF-DETR на val-сете с расчётом mAP.
+
+    Args:
+        data: Путь к директории датасета (с valid/ или val/ внутри).
+        weights: Путь к файлу весов модели.
+        variant: Вариант архитектуры RF-DETR.
+        threshold: Порог уверенности для детекций.
+        device: Устройство ("auto", "cpu", "cuda", "mps").
+        batch_size: Размер батча (зарезервировано).
+        **model_extra: Дополнительные kwargs для конструктора модели.
+
+    """
+    val_dir = _find_val_dir(data)
     if val_dir is None:
-        logger.error(
-            f"Директория валидации (valid/ или val/) не найдена в {config.data}"
-        )
+        logger.error(f"Директория валидации (valid/ или val/) не найдена в {data}")
         return
 
     gt_map, image_paths, gt_cat_names = _load_coco_annotations(val_dir)
@@ -143,14 +158,20 @@ def val_from_config(config: ValConfig) -> None:
         logger.error("Нет изображений для валидации")
         return
 
-    model_cls = _get_model_class(config.variant)
-    model = model_cls(pretrain_weights=config.weights)
+    model_cls = _get_model_class(variant)
+    model_kwargs: dict[str, Any] = {
+        "pretrain_weights": weights,
+        **model_extra,
+    }
+    if device != "auto":
+        model_kwargs["device"] = device
+    model = model_cls(**model_kwargs)
 
     pred_to_gt = _build_pred_to_gt_map(model.class_names, gt_cat_names)
 
     logger.info(
         f"Валидация: {len(image_paths)} изображений, "
-        f"variant={config.variant}, threshold={config.threshold}"
+        f"variant={variant}, threshold={threshold}"
     )
 
     all_predictions: list[sv.Detections] = []
@@ -158,7 +179,7 @@ def val_from_config(config: ValConfig) -> None:
 
     for img_path in image_paths:
         image = Image.open(img_path).convert("RGB")
-        detections: sv.Detections = model.predict(image, threshold=config.threshold)
+        detections: sv.Detections = model.predict(image, threshold=threshold)
         detections = _remap_class_ids(detections, pred_to_gt)
 
         fname = img_path.name

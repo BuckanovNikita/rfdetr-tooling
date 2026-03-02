@@ -5,7 +5,7 @@ from __future__ import annotations
 import abc
 import csv
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 
 import pillow_heif
 import supervision as sv
@@ -17,8 +17,6 @@ from rfdetr_tooling.train import _get_model_class
 
 if TYPE_CHECKING:
     import numpy as np
-
-    from rfdetr_tooling.config import PredictConfig
 
 pillow_heif.register_heif_opener()
 
@@ -531,10 +529,44 @@ def _chunked(lst: list[ImageEntry], n: int) -> list[list[ImageEntry]]:
 # ---------------------------------------------------------------------------
 
 
-def predict_from_config(config: PredictConfig) -> None:
-    """Инференс RF-DETR из pydantic-конфига."""
+def predict(  # noqa: PLR0913
+    source: str,
+    weights: str,
+    *,
+    variant: Literal["nano", "small", "base", "medium", "large"] = "base",
+    conf_threshold: float = 0.01,
+    nms_threshold: float = 0.25,
+    agnostic_nms: bool = False,
+    resolution: int | None = None,
+    batch_size: int = 4,
+    device: str = "auto",
+    output_dir: str = "predict_output",
+    format: Literal["yolo", "csv"] = "yolo",  # noqa: A002
+    visualize: bool = False,
+    check_image_sizes: bool = False,
+    **model_extra: Any,  # noqa: ANN401
+) -> None:
+    """Инференс RF-DETR.
+
+    Args:
+        source: Пути через запятую — папки, data.yaml, dataset.csv.
+        weights: Путь к файлу весов модели.
+        variant: Вариант архитектуры RF-DETR.
+        conf_threshold: Порог уверенности для детекций.
+        nms_threshold: IoU-порог для NMS.
+        agnostic_nms: Class-agnostic NMS.
+        resolution: Разрешение входа модели (None = по умолчанию).
+        batch_size: Размер батча для инференса.
+        device: Устройство ("auto", "cpu", "cuda", "mps").
+        output_dir: Директория для результатов.
+        format: Формат выходных данных ("yolo" или "csv").
+        visualize: Сохранять визуализации детекций.
+        check_image_sizes: Проверять размер каждого изображения.
+        **model_extra: Дополнительные kwargs для конструктора модели.
+
+    """
     # 1. Парсинг источников
-    sources = _parse_sources(config.source)
+    sources = _parse_sources(source)
     logger.info(f"Источники: {sources}")
 
     # 2. Сбор изображений
@@ -542,56 +574,59 @@ def predict_from_config(config: PredictConfig) -> None:
     logger.info(f"Найдено {len(images)} изображений")
 
     # 3. Валидация и размеры
-    images = _validate_images(images, check_image_sizes=config.check_image_sizes)
+    images = _validate_images(images, check_image_sizes=check_image_sizes)
 
     # 4. Инициализация модели
-    model_cls = _get_model_class(config.variant)
-    kwargs: dict[str, object] = {"pretrain_weights": config.weights}
-    if config.device != "auto":
-        kwargs["device"] = config.device
-    model = model_cls(**kwargs)
-    if config.resolution is not None:
-        model.model.resolution = config.resolution
+    model_cls = _get_model_class(variant)
+    model_kwargs: dict[str, Any] = {
+        "pretrain_weights": weights,
+        **model_extra,
+    }
+    if device != "auto":
+        model_kwargs["device"] = device
+    model = model_cls(**model_kwargs)
+    if resolution is not None:
+        model.model.resolution = resolution
 
     class_names: dict[int, str] = model.class_names
 
     logger.info(
-        f"Инференс: {len(images)} изображений, variant={config.variant}, "
-        f"conf={config.conf_threshold}, nms={config.nms_threshold}, "
-        f"batch_size={config.batch_size}"
+        f"Инференс: {len(images)} изображений, variant={variant}, "
+        f"conf={conf_threshold}, nms={nms_threshold}, "
+        f"batch_size={batch_size}"
     )
 
     # 5. GPU-инференс (батчированный, чанками)
     raw_chunks: list[list[tuple[ImageEntry, sv.Detections]]] = []
-    for batch_entries in _chunked(images, config.batch_size):
+    for batch_entries in _chunked(images, batch_size):
         pil_images = [Image.open(e.path).convert("RGB") for e in batch_entries]
         det_list: list[sv.Detections] = model.predict(
-            pil_images, threshold=config.conf_threshold
+            pil_images, threshold=conf_threshold
         )
         chunk = list(zip(batch_entries, det_list, strict=True))
         raw_chunks.append(chunk)
         del pil_images
 
     # 6. Создание output_dir и writer
-    output_dir = _make_output_dir(config.output_dir)
+    out_path = _make_output_dir(output_dir)
 
     vis_dir: Path | None = None
-    if config.visualize:
-        vis_dir = output_dir / "visualize"
+    if visualize:
+        vis_dir = out_path / "visualize"
         vis_dir.mkdir(parents=True, exist_ok=True)
 
     writer: _Writer
-    if config.format == "yolo":
-        writer = YoloWriter(output_dir, class_names)
+    if format == "yolo":
+        writer = YoloWriter(out_path, class_names)
     else:
-        writer = CsvWriter(output_dir, class_names)
+        writer = CsvWriter(out_path, class_names)
 
     # 7. NMS + запись (по чанкам)
     for chunk in raw_chunks:
         for entry, raw_dets in chunk:
             filtered = raw_dets.with_nms(
-                threshold=config.nms_threshold,
-                class_agnostic=config.agnostic_nms,
+                threshold=nms_threshold,
+                class_agnostic=agnostic_nms,
             )
             writer.write(entry, filtered)
             if vis_dir is not None:

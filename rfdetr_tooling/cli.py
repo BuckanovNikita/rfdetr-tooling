@@ -225,7 +225,7 @@ def _cmd_train(config: TrainConfig, argv: list[str]) -> None:
         is_ddp_worker,
         relaunch_with_torchrun,
     )
-    from rfdetr_tooling.train import train_from_config  # noqa: PLC0415
+    from rfdetr_tooling.train import train  # noqa: PLC0415
 
     # Preflight: gpus > 1 несовместимо с cpu/mps
     if config.gpus > 1 and config.device in ("cpu", "mps"):
@@ -252,7 +252,7 @@ def _cmd_train(config: TrainConfig, argv: list[str]) -> None:
     if config.gpus > 1 and not is_ddp_worker():
         relaunch_with_torchrun(config.gpus, argv)
 
-    train_from_config(config)
+    train(**config.model_dump())
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -286,10 +286,10 @@ def main(argv: list[str] | None = None) -> None:
         assert isinstance(config, TrainConfig)  # noqa: S101
         _cmd_train(config, argv)
     elif command == "predict":
-        from rfdetr_tooling.predict import predict_from_config  # noqa: PLC0415
+        from rfdetr_tooling.predict import predict  # noqa: PLC0415
 
-        predict_from_config(config)  # type: ignore[arg-type]
+        predict(**config.model_dump())
     elif command == "val":
-        from rfdetr_tooling.val import val_from_config  # noqa: PLC0415
+        from rfdetr_tooling.val import val  # noqa: PLC0415
 
-        val_from_config(config)  # type: ignore[arg-type]
+        val(**config.model_dump())

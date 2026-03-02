@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, Literal
 
 from loguru import logger
-
-if TYPE_CHECKING:
-    from rfdetr_tooling.config import TrainConfig
 
 _VARIANT_MAP: dict[str, str] = {
     "nano": "RFDETRNano",
@@ -18,8 +15,15 @@ _VARIANT_MAP: dict[str, str] = {
     "large": "RFDETRLarge",
 }
 
-# Поля TrainConfig, которые НЕ передаются в rfdetr model.train()
-_EXCLUDED_FIELDS = {"variant", "gradient_checkpointing", "seed", "gpus"}
+# Поля, которые НЕ передаются в rfdetr model.train()
+_EXCLUDED_FIELDS = {
+    "variant",
+    "gradient_checkpointing",
+    "seed",
+    "gpus",
+    "clearml",
+    "sync_bn",
+}
 
 
 def _get_model_class(variant: str) -> type:
@@ -33,7 +37,7 @@ def _get_model_class(variant: str) -> type:
     return getattr(rfdetr, class_name)  # type: ignore[no-any-return]
 
 
-def _upload_clearml_artifacts(config: TrainConfig) -> None:
+def _upload_clearml_artifacts(output_dir: str) -> None:
     """Загрузка артефактов в ClearML после тренировки."""
     try:
         from clearml import OutputModel, Task  # noqa: PLC0415
@@ -46,7 +50,7 @@ def _upload_clearml_artifacts(config: TrainConfig) -> None:
         logger.warning("ClearML Task не найден, артефакты не загружены")
         return
 
-    output_path = Path(config.output_dir)
+    output_path = Path(output_dir)
 
     # Загрузка лучшего чекпоинта
     best_ckpt = output_path / "checkpoint_best_ema.pth"
@@ -64,71 +68,141 @@ def _upload_clearml_artifacts(config: TrainConfig) -> None:
         logger.info("ClearML: загружен metrics_plot.png")
 
 
-def train_from_config(config: TrainConfig) -> None:
-    """Тренировка RF-DETR из pydantic-конфига."""
-    model_cls = _get_model_class(config.variant)
+def train(  # noqa: PLR0913
+    data: str,
+    *,
+    variant: Literal["nano", "small", "base", "medium", "large"] = "base",
+    epochs: int = 100,
+    batch_size: int = 4,
+    lr: float = 1e-4,
+    lr_encoder: float = 1.5e-4,
+    lr_drop: int = 100,
+    weight_decay: float = 1e-4,
+    grad_accum_steps: int = 4,
+    warmup_epochs: float = 0.0,
+    use_ema: bool = True,
+    ema_decay: float = 0.993,
+    ema_tau: int = 100,
+    early_stopping: bool = False,
+    early_stopping_patience: int = 10,
+    early_stopping_min_delta: float = 0.001,
+    output_dir: str = "output",
+    device: Literal["auto", "cpu", "cuda", "mps"] = "auto",
+    resume: str | None = None,
+    checkpoint_interval: int = 10,
+    tensorboard: bool = True,
+    wandb: bool = False,
+    mlflow: bool = False,
+    clearml: bool = False,
+    project: str | None = None,
+    run: str | None = None,
+    gpus: int = 1,  # noqa: ARG001
+    sync_bn: bool = True,  # noqa: ARG001
+    gradient_checkpointing: bool = False,  # noqa: ARG001
+    drop_path: float = 0.0,
+    seed: int | None = None,  # noqa: ARG001
+    num_workers: int = 2,
+    multi_scale: bool = True,
+    resolution: int | None = None,
+    progress_bar: bool = False,
+    **model_extra: Any,  # noqa: ANN401
+) -> None:
+    """Тренировка RF-DETR.
+
+    Args:
+        data: Путь к директории датасета (COCO или YOLO формат).
+        variant: Вариант архитектуры RF-DETR.
+        epochs: Количество эпох.
+        batch_size: Размер батча.
+        lr: Learning rate для декодера.
+        lr_encoder: Learning rate для энкодера.
+        lr_drop: Эпоха для снижения LR.
+        weight_decay: Weight decay.
+        grad_accum_steps: Шаги градиентной аккумуляции.
+        warmup_epochs: Количество warmup-эпох.
+        use_ema: Использовать EMA.
+        ema_decay: EMA decay.
+        ema_tau: EMA tau.
+        early_stopping: Включить early stopping.
+        early_stopping_patience: Терпение early stopping.
+        early_stopping_min_delta: Минимальный delta для early stopping.
+        output_dir: Директория для результатов.
+        device: Устройство ("auto", "cpu", "cuda", "mps").
+        resume: Путь к чекпоинту для продолжения тренировки.
+        checkpoint_interval: Интервал сохранения чекпоинтов (эпохи).
+        tensorboard: Логирование в TensorBoard.
+        wandb: Логирование в W&B.
+        mlflow: Логирование в MLflow.
+        clearml: Логирование в ClearML + загрузка артефактов.
+        project: Имя проекта для логгеров.
+        run: Имя запуска для логгеров.
+        gpus: Количество GPU для DDP.
+        sync_bn: Синхронизировать BatchNorm при DDP.
+        gradient_checkpointing: Gradient checkpointing (не передаётся в rfdetr).
+        drop_path: Drop path rate.
+        seed: Random seed.
+        num_workers: Количество DataLoader workers.
+        multi_scale: Multi-scale аугментация.
+        resolution: Разрешение входа модели.
+        progress_bar: Показывать progress bar.
+        **model_extra: Дополнительные kwargs для rfdetr model.train().
+
+    """
+    model_cls = _get_model_class(variant)
     model = model_cls()
 
-    # Собираем kwargs для rfdetr, фильтруя None и исключённые поля
+    # Собираем kwargs для rfdetr
+    all_params: dict[str, Any] = {
+        "dataset_dir": str(Path(data).resolve()),
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "lr": lr,
+        "lr_encoder": lr_encoder,
+        "lr_drop": lr_drop,
+        "weight_decay": weight_decay,
+        "grad_accum_steps": grad_accum_steps,
+        "warmup_epochs": warmup_epochs,
+        "use_ema": use_ema,
+        "ema_decay": ema_decay,
+        "ema_tau": ema_tau,
+        "early_stopping": early_stopping,
+        "early_stopping_patience": early_stopping_patience,
+        "early_stopping_min_delta": early_stopping_min_delta,
+        "output_dir": str(Path(output_dir).resolve()),
+        "checkpoint_interval": checkpoint_interval,
+        "tensorboard": tensorboard,
+        "wandb": wandb,
+        "mlflow": mlflow,
+        "project": project,
+        "run": run,
+        "drop_path": drop_path,
+        "num_workers": num_workers,
+        "multi_scale": multi_scale,
+        "resolution": resolution,
+        "progress_bar": progress_bar,
+        "resume": resume,
+        **model_extra,
+    }
+
+    # Фильтруем None и device=auto
     kwargs: dict[str, Any] = {}
-    raw = config.model_dump()
-    for key, value in raw.items():
-        if key in _EXCLUDED_FIELDS:
-            continue
-        if key == "data":
-            kwargs["dataset_dir"] = str(Path(value).resolve())
-            continue
+    for key, value in all_params.items():
         if value is None:
-            continue
-        # "auto" не поддерживается torch.device(), rfdetr сам определит устройство
-        if key == "device" and value == "auto":
-            continue
-        if key == "output_dir":
-            kwargs[key] = str(Path(value).resolve())
             continue
         kwargs[key] = value
 
+    if device != "auto":
+        kwargs["device"] = device
+
     logger.info(
-        f"Тренировка RF-DETR: variant={config.variant}, "
-        f"dataset={kwargs['dataset_dir']}, epochs={kwargs.get('epochs')}, "
-        f"batch_size={kwargs.get('batch_size')}"
+        f"Тренировка RF-DETR: variant={variant}, "
+        f"dataset={kwargs['dataset_dir']}, epochs={epochs}, "
+        f"batch_size={batch_size}"
     )
 
     model.train(**kwargs)
 
     logger.info(f"Тренировка завершена. Результаты в {kwargs['dataset_dir']}")
 
-    if config.clearml:
-        _upload_clearml_artifacts(config)
-
-
-def train(
-    dataset_dir: str | Path,
-    *,
-    variant: str = "base",
-    epochs: int = 100,
-    batch_size: int = 4,
-    output_dir: str | Path = "output",
-    **kwargs: Any,  # noqa: ANN401
-) -> None:
-    """Train an RF-DETR model on a COCO or YOLO dataset."""
-    model_cls = _get_model_class(variant)
-    model = model_cls()
-
-    dataset_dir = str(Path(dataset_dir).resolve())
-    output_dir = str(Path(output_dir).resolve())
-
-    logger.info(
-        f"Starting RF-DETR training: variant={variant}, "
-        f"dataset={dataset_dir}, epochs={epochs}, batch_size={batch_size}"
-    )
-
-    model.train(
-        dataset_dir=dataset_dir,
-        epochs=epochs,
-        batch_size=batch_size,
-        output_dir=output_dir,
-        **kwargs,
-    )
-
-    logger.info(f"Training complete. Output saved to {output_dir}")
+    if clearml:
+        _upload_clearml_artifacts(output_dir)
