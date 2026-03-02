@@ -191,6 +191,7 @@ def _cmd_cfg(overrides: dict[str, str]) -> None:
             "project",
             "run",
         ],
+        "\n# --- Распределённое обучение (DDP) ---": ["gpus", "sync_bn"],
         "\n# --- Прочее ---": [
             "gradient_checkpointing",
             "drop_path",
@@ -216,6 +217,42 @@ def _cmd_cfg(overrides: dict[str, str]) -> None:
         logger.info(f"Конфиг записан в {output}")
     else:
         sys.stdout.write(content)
+
+
+def _cmd_train(config: TrainConfig, argv: list[str]) -> None:
+    """Запуск тренировки с поддержкой DDP."""
+    from rfdetr_tooling.ddp import (  # noqa: PLC0415
+        is_ddp_worker,
+        relaunch_with_torchrun,
+    )
+    from rfdetr_tooling.train import train_from_config  # noqa: PLC0415
+
+    # Preflight: gpus > 1 несовместимо с cpu/mps
+    if config.gpus > 1 and config.device in ("cpu", "mps"):
+        logger.error(
+            f"DDP (gpus={config.gpus}) несовместим с device={config.device!r}"  # noqa: RUF001
+        )
+        sys.exit(1)
+
+    # Preflight: проверка доступных GPU
+    if config.gpus > 1:
+        try:
+            import torch  # noqa: PLC0415
+
+            available = torch.cuda.device_count()
+            if config.gpus > available:
+                logger.error(
+                    f"Запрошено gpus={config.gpus}, но доступно только {available} GPU"
+                )
+                sys.exit(1)
+        except ImportError:
+            pass  # torch не установлен — torchrun сам покажет ошибку
+
+    # DDP relaunch
+    if config.gpus > 1 and not is_ddp_worker():
+        relaunch_with_torchrun(config.gpus, argv)
+
+    train_from_config(config)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -246,9 +283,8 @@ def main(argv: list[str] | None = None) -> None:
     config = _build_config(config_cls, overrides)
 
     if command == "train":
-        from rfdetr_tooling.train import train_from_config  # noqa: PLC0415
-
-        train_from_config(config)  # type: ignore[arg-type]
+        assert isinstance(config, TrainConfig)  # noqa: S101
+        _cmd_train(config, argv)
     elif command == "predict":
         from rfdetr_tooling.predict import predict_from_config  # noqa: PLC0415
 

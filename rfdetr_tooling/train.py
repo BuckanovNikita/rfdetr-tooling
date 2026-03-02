@@ -19,7 +19,7 @@ _VARIANT_MAP: dict[str, str] = {
 }
 
 # Поля TrainConfig, которые НЕ передаются в rfdetr model.train()
-_EXCLUDED_FIELDS = {"variant", "gradient_checkpointing", "seed"}
+_EXCLUDED_FIELDS = {"variant", "gradient_checkpointing", "seed", "gpus"}
 
 
 def _get_model_class(variant: str) -> type:
