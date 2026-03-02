@@ -134,6 +134,7 @@ def val(  # noqa: PLR0913
     threshold: float = 0.5,
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto",
     batch_size: int = 4,  # noqa: ARG001
+    resolution: int | None = None,
     **model_extra: Any,  # noqa: ANN401
 ) -> None:
     """Валидация RF-DETR на val-сете с расчётом mAP.
@@ -145,6 +146,7 @@ def val(  # noqa: PLR0913
         threshold: Порог уверенности для детекций.
         device: Устройство ("auto", "cpu", "cuda", "mps").
         batch_size: Размер батча (зарезервировано).
+        resolution: Разрешение входа модели (None = по умолчанию).
         **model_extra: Дополнительные kwargs для конструктора модели.
 
     """
@@ -166,6 +168,8 @@ def val(  # noqa: PLR0913
     if device != "auto":
         model_kwargs["device"] = device
     model = model_cls(**model_kwargs)
+    if resolution is not None:
+        model.model.resolution = resolution
 
     pred_to_gt = _build_pred_to_gt_map(model.class_names, gt_cat_names)
 

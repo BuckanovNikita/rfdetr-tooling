@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Variant = Literal["nano", "small", "base", "medium", "large"]
 
@@ -67,8 +67,16 @@ class TrainConfig(BaseModel):
     seed: int | None = None
     num_workers: int = 2
     multi_scale: bool = True
-    resolution: int | None = None
+    resolution: int | None = Field(default=None, gt=0)
     progress_bar: bool = False
+
+    @field_validator("resolution")
+    @classmethod
+    def _resolution_divisible_by_32(cls, v: int | None) -> int | None:
+        if v is not None and v % 32 != 0:
+            msg = f"resolution должен быть кратен 32, получено {v}"
+            raise ValueError(msg)
+        return v
 
 
 OutputFormat = Literal["yolo", "csv"]
@@ -83,13 +91,21 @@ class PredictConfig(BaseModel):
     conf_threshold: float = 0.01
     nms_threshold: float = 0.25
     agnostic_nms: bool = False
-    resolution: int | None = None
+    resolution: int | None = Field(default=None, gt=0)
     batch_size: int = 4
     device: str = "auto"
     output_dir: str = "predict_output"
     format: OutputFormat = "yolo"
     visualize: bool = False
     check_image_sizes: bool = False
+
+    @field_validator("resolution")
+    @classmethod
+    def _resolution_divisible_by_32(cls, v: int | None) -> int | None:
+        if v is not None and v % 32 != 0:
+            msg = f"resolution должен быть кратен 32, получено {v}"
+            raise ValueError(msg)
+        return v
 
 
 class ValConfig(BaseModel):
@@ -101,3 +117,12 @@ class ValConfig(BaseModel):
     threshold: float = 0.5
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     batch_size: int = 4
+    resolution: int | None = Field(default=None, gt=0)
+
+    @field_validator("resolution")
+    @classmethod
+    def _resolution_divisible_by_32(cls, v: int | None) -> int | None:
+        if v is not None and v % 32 != 0:
+            msg = f"resolution должен быть кратен 32, получено {v}"
+            raise ValueError(msg)
+        return v

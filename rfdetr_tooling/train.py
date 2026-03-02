@@ -194,10 +194,11 @@ def train(  # noqa: PLR0913
     if device != "auto":
         kwargs["device"] = device
 
+    res_str = str(resolution) if resolution is not None else "default"
     logger.info(
         f"Тренировка RF-DETR: variant={variant}, "
         f"dataset={kwargs['dataset_dir']}, epochs={epochs}, "
-        f"batch_size={batch_size}"
+        f"batch_size={batch_size}, resolution={res_str}"
     )
 
     model.train(**kwargs)
