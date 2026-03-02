@@ -50,6 +50,9 @@ rfdetr-tool train data=x variant=invalid             # pydantic literal error, e
 rfdetr-tool train cfg=nonexistent.yaml data=x        # "Файл не найден", exit 1
 rfdetr-tool badcommand                               # "Неизвестная команда", exit 1
 rfdetr-tool train cfg=config.yaml data=./ds epochs=5 # YAML + CLI overrides work
+rfdetr-tool predict                                    # pydantic error "Field required", exit 1
+rfdetr-tool predict source=x weights=y format=invalid  # pydantic literal error, exit 1
+rfdetr-tool predict source=x weights=y unknown=z       # "Неизвестный параметр", exit 1
 
 # 3. Linters and type checking
 uv run ruff check rfdetr_tooling/

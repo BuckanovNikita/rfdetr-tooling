@@ -67,16 +67,25 @@ class TrainConfig(BaseModel):
     progress_bar: bool = False
 
 
+OutputFormat = Literal["yolo", "csv"]
+
+
 class PredictConfig(BaseModel):
     """Конфигурация инференса RF-DETR."""
 
-    source: str
+    source: str  # пути через запятую: папки, data.yaml, dataset.csv
     weights: str
     variant: Variant = "base"
-    threshold: float = 0.5
-    device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
+    conf_threshold: float = 0.01
+    nms_threshold: float = 0.25
+    agnostic_nms: bool = False
+    resolution: int | None = None
+    batch_size: int = 4
+    device: str = "auto"
     output_dir: str = "predict_output"
-    save: bool = True
+    format: OutputFormat = "yolo"
+    visualize: bool = False
+    check_image_sizes: bool = False
 
 
 class ValConfig(BaseModel):
