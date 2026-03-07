@@ -529,7 +529,7 @@ def _chunked(lst: list[ImageEntry], n: int) -> list[list[ImageEntry]]:
 # ---------------------------------------------------------------------------
 
 
-def predict(  # noqa: PLR0913
+def predict(  # noqa: PLR0913, C901
     source: str,
     weights: str,
     *,
@@ -537,7 +537,7 @@ def predict(  # noqa: PLR0913
     conf_threshold: float = 0.01,
     nms_threshold: float = 0.25,
     agnostic_nms: bool = False,
-    resolution: int | None = None,
+    resolution: int | tuple[int, int] | None = None,
     batch_size: int = 4,
     device: str = "auto",
     output_dir: str = "predict_output",
@@ -585,7 +585,10 @@ def predict(  # noqa: PLR0913
     if device != "auto":
         model_kwargs["device"] = device
     model = model_cls(**model_kwargs)
-    if resolution is not None:
+    rect_resolution: tuple[int, int] | None = None
+    if isinstance(resolution, tuple):
+        rect_resolution = resolution
+    elif resolution is not None:
         model.model.resolution = resolution
 
     class_names: dict[int, str] = model.class_names
@@ -600,9 +603,18 @@ def predict(  # noqa: PLR0913
     raw_chunks: list[list[tuple[ImageEntry, sv.Detections]]] = []
     for batch_entries in _chunked(images, batch_size):
         pil_images = [Image.open(e.path).convert("RGB") for e in batch_entries]
-        det_list: list[sv.Detections] = model.predict(
-            pil_images, threshold=conf_threshold
-        )
+        if rect_resolution is not None:
+            from rfdetr_tooling._inference import predict_batch_rect  # noqa: PLC0415
+
+            det_list: list[sv.Detections] = predict_batch_rect(
+                model,
+                pil_images,
+                conf_threshold,
+                rect_resolution[0],
+                rect_resolution[1],
+            )
+        else:
+            det_list = model.predict(pil_images, threshold=conf_threshold)
         chunk = list(zip(batch_entries, det_list, strict=True))
         raw_chunks.append(chunk)
         del pil_images

@@ -82,7 +82,7 @@ def _parse_argv(argv: list[str]) -> tuple[str, dict[str, str]]:
     return command, overrides
 
 
-def _coerce_value(value: str, annotation: Any) -> Any:  # noqa: ANN401
+def _coerce_value(value: str, annotation: Any) -> Any:  # noqa: ANN401, PLR0911
     """Приведение строкового значения к типу по аннотации pydantic-поля."""
     origin = typing.get_origin(annotation)
 
@@ -90,6 +90,9 @@ def _coerce_value(value: str, annotation: Any) -> Any:  # noqa: ANN401
     if origin is typing.Union or isinstance(annotation, types.UnionType):
         args = typing.get_args(annotation)
         non_none = [a for a in args if a is not type(None)]
+        # Если Union содержит tuple — не приводить, пусть pydantic разбирается
+        if any(typing.get_origin(a) is tuple or a is tuple for a in non_none):
+            return value
         if non_none:
             return _coerce_value(value, non_none[0])
 
@@ -148,7 +151,14 @@ def _cmd_cfg(overrides: dict[str, str]) -> None:
     variant = overrides.pop("variant", "base")
     output = overrides.pop("output", None)
 
-    config = TrainConfig(data="./dataset", variant=variant)  # type: ignore[arg-type]
+    # Передаём оставшиеся overrides (resolution и др.) в TrainConfig
+    extra: dict[str, Any] = {}
+    hints = get_type_hints(TrainConfig)
+    for key, raw_value in overrides.items():
+        if key in hints:
+            extra[key] = _coerce_value(raw_value, hints[key])
+
+    config = TrainConfig(data="./dataset", variant=variant, **extra)  # type: ignore[arg-type]
 
     # Подставляем дефолтный resolution для варианта если не задан явно
     if config.resolution is None:
@@ -157,6 +167,11 @@ def _cmd_cfg(overrides: dict[str, str]) -> None:
         )
 
     data = config.model_dump()
+
+    # Сериализация tuple resolution обратно в WxH строку
+    if isinstance(data.get("resolution"), tuple):
+        h, w = data["resolution"]
+        data["resolution"] = f"{w}x{h}"
 
     # YAML с комментариями по секциям
     sections = {

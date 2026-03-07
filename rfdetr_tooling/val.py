@@ -134,7 +134,7 @@ def val(  # noqa: PLR0913
     threshold: float = 0.5,
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto",
     batch_size: int = 4,  # noqa: ARG001
-    resolution: int | None = None,
+    resolution: int | tuple[int, int] | None = None,
     **model_extra: Any,  # noqa: ANN401
 ) -> None:
     """Валидация RF-DETR на val-сете с расчётом mAP.
@@ -168,7 +168,10 @@ def val(  # noqa: PLR0913
     if device != "auto":
         model_kwargs["device"] = device
     model = model_cls(**model_kwargs)
-    if resolution is not None:
+    rect_resolution: tuple[int, int] | None = None
+    if isinstance(resolution, tuple):
+        rect_resolution = resolution
+    elif resolution is not None:
         model.model.resolution = resolution
 
     pred_to_gt = _build_pred_to_gt_map(model.class_names, gt_cat_names)
@@ -183,7 +186,18 @@ def val(  # noqa: PLR0913
 
     for img_path in image_paths:
         image = Image.open(img_path).convert("RGB")
-        detections: sv.Detections = model.predict(image, threshold=threshold)
+        if rect_resolution is not None:
+            from rfdetr_tooling._inference import predict_batch_rect  # noqa: PLC0415
+
+            [detections] = predict_batch_rect(
+                model,
+                [image],
+                threshold,
+                rect_resolution[0],
+                rect_resolution[1],
+            )
+        else:
+            detections = model.predict(image, threshold=threshold)
         detections = _remap_class_ids(detections, pred_to_gt)
 
         fname = img_path.name

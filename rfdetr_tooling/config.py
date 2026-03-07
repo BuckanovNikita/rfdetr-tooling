@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 Variant = Literal["nano", "small", "base", "medium", "large"]
+
+Resolution = int | tuple[int, int]
 
 VARIANT_RESOLUTION: dict[str, int] = {
     "nano": 384,
@@ -15,6 +17,36 @@ VARIANT_RESOLUTION: dict[str, int] = {
     "medium": 576,
     "large": 704,
 }
+
+
+def _parse_resolution(v: Any) -> Any:  # noqa: ANN401
+    """Парсинг resolution: строка '960x608' → (608, 960) (H, W), список → tuple."""
+    if v is None:
+        return v
+    if isinstance(v, str):
+        low = v.lower()
+        if "x" in low:
+            parts = low.split("x", 1)
+            return (int(parts[1]), int(parts[0]))  # WxH → (H, W)
+        return int(v)
+    if isinstance(v, (list, tuple)) and len(v) == 2:
+        return (int(v[0]), int(v[1]))
+    return v
+
+
+def _validate_resolution_div32(v: Resolution | None) -> Resolution | None:
+    """Валидация: resolution > 0 и кратен 32 (для каждого измерения)."""
+    if v is None:
+        return v
+    dims = (v,) if isinstance(v, int) else v
+    for d in dims:
+        if d <= 0:
+            msg = f"resolution должен быть > 0, получено {d}"
+            raise ValueError(msg)
+        if d % 32 != 0:
+            msg = f"resolution должен быть кратен 32, получено {d}"
+            raise ValueError(msg)
+    return v
 
 
 class TrainConfig(BaseModel):
@@ -67,16 +99,18 @@ class TrainConfig(BaseModel):
     seed: int | None = None
     num_workers: int = 2
     multi_scale: bool = True
-    resolution: int | None = Field(default=None, gt=0)
+    resolution: Resolution | None = Field(default=None)
     progress_bar: bool = False
+
+    @field_validator("resolution", mode="before")
+    @classmethod
+    def _parse_resolution(cls, v: Any) -> Any:  # noqa: ANN401
+        return _parse_resolution(v)
 
     @field_validator("resolution")
     @classmethod
-    def _resolution_divisible_by_32(cls, v: int | None) -> int | None:
-        if v is not None and v % 32 != 0:
-            msg = f"resolution должен быть кратен 32, получено {v}"
-            raise ValueError(msg)
-        return v
+    def _resolution_divisible_by_32(cls, v: Resolution | None) -> Resolution | None:
+        return _validate_resolution_div32(v)
 
 
 OutputFormat = Literal["yolo", "csv"]
@@ -91,7 +125,7 @@ class PredictConfig(BaseModel):
     conf_threshold: float = 0.01
     nms_threshold: float = 0.25
     agnostic_nms: bool = False
-    resolution: int | None = Field(default=None, gt=0)
+    resolution: Resolution | None = Field(default=None)
     batch_size: int = 4
     device: str = "auto"
     output_dir: str = "predict_output"
@@ -99,13 +133,15 @@ class PredictConfig(BaseModel):
     visualize: bool = False
     check_image_sizes: bool = False
 
+    @field_validator("resolution", mode="before")
+    @classmethod
+    def _parse_resolution(cls, v: Any) -> Any:  # noqa: ANN401
+        return _parse_resolution(v)
+
     @field_validator("resolution")
     @classmethod
-    def _resolution_divisible_by_32(cls, v: int | None) -> int | None:
-        if v is not None and v % 32 != 0:
-            msg = f"resolution должен быть кратен 32, получено {v}"
-            raise ValueError(msg)
-        return v
+    def _resolution_divisible_by_32(cls, v: Resolution | None) -> Resolution | None:
+        return _validate_resolution_div32(v)
 
 
 class ValConfig(BaseModel):
@@ -117,12 +153,14 @@ class ValConfig(BaseModel):
     threshold: float = 0.5
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     batch_size: int = 4
-    resolution: int | None = Field(default=None, gt=0)
+    resolution: Resolution | None = Field(default=None)
+
+    @field_validator("resolution", mode="before")
+    @classmethod
+    def _parse_resolution(cls, v: Any) -> Any:  # noqa: ANN401
+        return _parse_resolution(v)
 
     @field_validator("resolution")
     @classmethod
-    def _resolution_divisible_by_32(cls, v: int | None) -> int | None:
-        if v is not None and v % 32 != 0:
-            msg = f"resolution должен быть кратен 32, получено {v}"
-            raise ValueError(msg)
-        return v
+    def _resolution_divisible_by_32(cls, v: Resolution | None) -> Resolution | None:
+        return _validate_resolution_div32(v)

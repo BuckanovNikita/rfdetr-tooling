@@ -68,7 +68,7 @@ def _upload_clearml_artifacts(output_dir: str) -> None:
         logger.info("ClearML: загружен metrics_plot.png")
 
 
-def train(  # noqa: PLR0913
+def train(  # noqa: PLR0913, C901
     data: str,
     *,
     variant: Literal["nano", "small", "base", "medium", "large"] = "base",
@@ -103,7 +103,7 @@ def train(  # noqa: PLR0913
     seed: int | None = None,  # noqa: ARG001
     num_workers: int = 2,
     multi_scale: bool = True,
-    resolution: int | None = None,
+    resolution: int | tuple[int, int] | None = None,
     progress_bar: bool = False,
     **model_extra: Any,  # noqa: ANN401
 ) -> None:
@@ -148,6 +148,15 @@ def train(  # noqa: PLR0913
         **model_extra: Дополнительные kwargs для rfdetr model.train().
 
     """
+    # Определяем rect resolution
+    rect_resolution: tuple[int, int] | None = None
+    scalar_resolution: int | None = None
+    if isinstance(resolution, tuple):
+        rect_resolution = resolution
+        scalar_resolution = max(resolution)
+    elif isinstance(resolution, int):
+        scalar_resolution = resolution
+
     model_cls = _get_model_class(variant)
     model = model_cls()
 
@@ -178,11 +187,15 @@ def train(  # noqa: PLR0913
         "drop_path": drop_path,
         "num_workers": num_workers,
         "multi_scale": multi_scale,
-        "resolution": resolution,
+        "resolution": scalar_resolution,
         "progress_bar": progress_bar,
         "resume": resume,
         **model_extra,
     }
+
+    # Rect: отключаем multi_scale, передаём max(H,W) как скалярный resolution
+    if rect_resolution is not None:
+        all_params["multi_scale"] = False
 
     # Фильтруем None и device=auto
     kwargs: dict[str, Any] = {}
@@ -194,14 +207,27 @@ def train(  # noqa: PLR0913
     if device != "auto":
         kwargs["device"] = device
 
-    res_str = str(resolution) if resolution is not None else "default"
+    res_str: str
+    if rect_resolution is not None:
+        res_str = f"{rect_resolution[1]}x{rect_resolution[0]}"
+    elif scalar_resolution is not None:
+        res_str = str(scalar_resolution)
+    else:
+        res_str = "default"
     logger.info(
         f"Тренировка RF-DETR: variant={variant}, "
         f"dataset={kwargs['dataset_dir']}, epochs={epochs}, "
         f"batch_size={batch_size}, resolution={res_str}"
     )
 
-    model.train(**kwargs)
+    if rect_resolution is not None:
+        from rfdetr_tooling._inference import rect_resolution_patch  # noqa: PLC0415
+
+        res_h, res_w = rect_resolution
+        with rect_resolution_patch(res_h, res_w):
+            model.train(**kwargs)
+    else:
+        model.train(**kwargs)
 
     logger.info(f"Тренировка завершена. Результаты в {kwargs['dataset_dir']}")
 

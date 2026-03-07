@@ -384,6 +384,7 @@ dev = [
     { name = "pandas-stubs", specifier = ">=2.3.3.260113" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff", specifier = ">=0.15.0" },
     { name = "types-tqdm", specifier = ">=4.66.0.20240417" },
