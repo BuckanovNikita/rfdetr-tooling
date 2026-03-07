@@ -5,6 +5,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+import cv2
+import numpy as np
 import torch
 import torchvision.transforms.functional as F  # noqa: N812
 
@@ -17,6 +19,144 @@ if TYPE_CHECKING:
 
 _MEANS = [0.485, 0.456, 0.406]
 _STDS = [0.229, 0.224, 0.225]
+
+
+def _register_letterbox_transform() -> None:  # noqa: C901
+    """Регистрирует LetterboxResize в albumentations namespace для from_config."""
+    import albumentations as A  # noqa: PLC0415, N812
+
+    if hasattr(A, "LetterboxResize"):
+        return
+
+    class LetterboxResize(A.DualTransform):  # type: ignore[misc]
+        """Resize с сохранением AR + pad до точных (height, width)."""
+
+        def __init__(  # noqa: PLR0913
+            self,
+            height: int,
+            width: int,
+            fill: int = 114,
+            position: str = "top_left",
+            interpolation: int = cv2.INTER_LINEAR,
+            always_apply: bool = False,  # noqa: FBT001, FBT002
+            p: float = 1.0,
+        ) -> None:
+            super().__init__(always_apply=always_apply, p=p)
+            self.height = height
+            self.width = width
+            self.fill = fill
+            self.position = position
+            self.interpolation = interpolation
+
+        @property
+        def targets_as_params(self) -> list[str]:
+            return ["image"]
+
+        def apply(  # noqa: PLR0913
+            self,
+            img: np.ndarray,
+            scale: float = 1.0,
+            pad_top: int = 0,
+            pad_left: int = 0,
+            pad_bottom: int = 0,
+            pad_right: int = 0,
+            **params: Any,  # noqa: ANN401, ARG002
+        ) -> np.ndarray:
+            h, w = img.shape[:2]
+            new_h, new_w = int(h * scale), int(w * scale)
+            img = cv2.resize(img, (new_w, new_h), interpolation=self.interpolation)
+            return cv2.copyMakeBorder(
+                img,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+                cv2.BORDER_CONSTANT,
+                value=(self.fill, self.fill, self.fill),
+            )
+
+        def apply_to_bboxes(
+            self,
+            bboxes: np.ndarray,
+            pad_top: int = 0,
+            pad_left: int = 0,
+            pad_bottom: int = 0,
+            pad_right: int = 0,
+            **params: Any,  # noqa: ANN401, ARG002
+        ) -> np.ndarray:
+            if len(bboxes) == 0:
+                return bboxes
+            result = bboxes.copy()
+            new_w = self.width - pad_left - pad_right
+            new_h = self.height - pad_top - pad_bottom
+            result[:, 0] = result[:, 0] * new_w / self.width + pad_left / self.width
+            result[:, 2] = result[:, 2] * new_w / self.width + pad_left / self.width
+            result[:, 1] = result[:, 1] * new_h / self.height + pad_top / self.height
+            result[:, 3] = result[:, 3] * new_h / self.height + pad_top / self.height
+            return result
+
+        def apply_to_mask(  # noqa: PLR0913
+            self,
+            mask: np.ndarray,
+            scale: float = 1.0,
+            pad_top: int = 0,
+            pad_left: int = 0,
+            pad_bottom: int = 0,
+            pad_right: int = 0,
+            **params: Any,  # noqa: ANN401, ARG002
+        ) -> np.ndarray:
+            h, w = mask.shape[:2]
+            new_h, new_w = int(h * scale), int(w * scale)
+            mask = cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+            return cv2.copyMakeBorder(
+                mask,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+                cv2.BORDER_CONSTANT,
+                value=0,
+            )
+
+        def get_params_dependent_on_data(
+            self,
+            params: dict[str, Any],  # noqa: ARG002
+            data: dict[str, Any],
+        ) -> dict[str, Any]:
+            img = data.get("image")
+            if img is None:
+                return {
+                    "scale": 1.0,
+                    "pad_top": 0,
+                    "pad_left": 0,
+                    "pad_bottom": 0,
+                    "pad_right": 0,
+                }
+            h, w = img.shape[:2]
+            scale = min(self.height / h, self.width / w)
+            new_h = int(h * scale)
+            new_w = int(w * scale)
+            pad_h = self.height - new_h
+            pad_w = self.width - new_w
+            if self.position == "random":
+                rng = np.random.default_rng()
+                pad_top = int(rng.integers(0, pad_h + 1)) if pad_h > 0 else 0
+                pad_left = int(rng.integers(0, pad_w + 1)) if pad_w > 0 else 0
+            else:
+                pad_top = 0
+                pad_left = 0
+            return {
+                "scale": scale,
+                "pad_top": pad_top,
+                "pad_left": pad_left,
+                "pad_bottom": pad_h - pad_top,
+                "pad_right": pad_w - pad_left,
+            }
+
+        def get_transform_init_args_names(self) -> tuple[str, ...]:
+            return ("height", "width", "fill", "position", "interpolation")
+
+    A.LetterboxResize = LetterboxResize
 
 
 def _letterbox_resize(
@@ -51,7 +191,6 @@ def predict_batch_rect(
     res_w: int,
 ) -> list[sv.Detections]:
     """Inference с прямоугольным letterbox resize."""
-    import numpy as np  # noqa: PLC0415
     import supervision as sv  # noqa: PLC0415
 
     meta: list[tuple[float, int, int]] = []  # (scale, orig_h, orig_w)
@@ -127,30 +266,30 @@ def _make_rect_transforms(
         to_float = ToDtype(torch.float32, scale=True)
         normalize = Normalize()
 
-        max_side = max(res_h, res_w)
-        pad_cfg = {
-            "min_height": res_h,
-            "min_width": res_w,
-            "border_mode": 0,
-            "fill": 114,
+        _register_letterbox_transform()
+
+        letterbox_train = {
+            "LetterboxResize": {
+                "height": res_h,
+                "width": res_w,
+                "fill": 114,
+                "position": "random",
+            }
+        }
+        letterbox_val = {
+            "LetterboxResize": {
+                "height": res_h,
+                "width": res_w,
+                "fill": 114,
+                "position": "top_left",
+            }
         }
 
         if image_set == "train":
             resolved_aug = aug_config if aug_config is not None else AUG_CONFIG
 
-            option_a = {
-                "Sequential": {
-                    "transforms": [
-                        {"LongestMaxSize": {"max_size": max_side}},
-                        {
-                            "PadIfNeeded": {
-                                **pad_cfg,
-                                "position": "random",
-                            }
-                        },
-                    ]
-                }
-            }
+            option_a = letterbox_train
+            max_side = max(res_h, res_w)
             crop_min = min(384, res_h, res_w)
             crop_max = min(600, max_side)
             option_b = {
@@ -186,16 +325,7 @@ def _make_rect_transforms(
             )
 
         if image_set in ("val", "test", "val_speed"):
-            resize_config_val: list[dict[str, Any]] = [
-                {"LongestMaxSize": {"max_size": max_side}},
-                {
-                    "PadIfNeeded": {
-                        **pad_cfg,
-                        "position": "top_left",
-                    }
-                },
-            ]
-            resize_wrappers = AlbumentationsWrapper.from_config(resize_config_val)
+            resize_wrappers = AlbumentationsWrapper.from_config([letterbox_val])
             return Compose([*resize_wrappers, to_image, to_float, normalize])
 
         msg = f"unknown image_set: {image_set}"

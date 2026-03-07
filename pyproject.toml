@@ -67,7 +67,7 @@ warn_return_any = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = ["rfdetr.*", "supervision.*", "pycocotools.*", "clearml.*", "pillow_heif.*", "pandas.*", "torch.*", "torchvision.*"]
+module = ["rfdetr.*", "supervision.*", "pycocotools.*", "clearml.*", "pillow_heif.*", "pandas.*", "torch.*", "torchvision.*", "albumentations.*", "cv2.*"]
 ignore_missing_imports = true
 
 [tool.uv.sources]
