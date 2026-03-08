@@ -28,6 +28,10 @@ def _register_letterbox_transform() -> None:  # noqa: C901
     if hasattr(A, "LetterboxResize"):
         return
 
+    from rfdetr.datasets.transforms import GEOMETRIC_TRANSFORMS  # noqa: PLC0415
+
+    GEOMETRIC_TRANSFORMS.add("LetterboxResize")
+
     class LetterboxResize(A.DualTransform):  # type: ignore[misc]
         """Resize с сохранением AR + pad до точных (height, width)."""
 
