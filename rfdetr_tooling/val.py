@@ -135,6 +135,7 @@ def val(  # noqa: PLR0913
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto",
     batch_size: int = 4,  # noqa: ARG001
     resolution: int | tuple[int, int] | None = None,
+    resize_mode: str = "auto",
     **model_extra: Any,  # noqa: ANN401
 ) -> None:
     """Валидация RF-DETR на val-сете с расчётом mAP.
@@ -147,6 +148,7 @@ def val(  # noqa: PLR0913
         device: Устройство ("auto", "cpu", "cuda", "mps").
         batch_size: Размер батча (зарезервировано).
         resolution: Разрешение входа модели (None = по умолчанию).
+        resize_mode: Режим resize ("auto", "letterbox", "true").
         **model_extra: Дополнительные kwargs для конструктора модели.
 
     """
@@ -189,12 +191,14 @@ def val(  # noqa: PLR0913
         if rect_resolution is not None:
             from rfdetr_tooling._inference import predict_batch_rect  # noqa: PLC0415
 
+            use_letterbox = resize_mode != "true"
             [detections] = predict_batch_rect(
                 model,
                 [image],
                 threshold,
                 rect_resolution[0],
                 rect_resolution[1],
+                letterbox=use_letterbox,
             )
         else:
             detections = model.predict(image, threshold=threshold)

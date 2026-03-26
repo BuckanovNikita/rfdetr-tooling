@@ -214,6 +214,7 @@ def _cmd_cfg(overrides: dict[str, str]) -> None:
             "num_workers",
             "multi_scale",
             "resolution",
+            "resize_mode",
             "progress_bar",
         ],
     }

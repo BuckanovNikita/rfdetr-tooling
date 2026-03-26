@@ -23,14 +23,37 @@ uv run mypy .              # type check
 - **rfdetr API**: training uses `model.train(dataset_dir=..., epochs=..., batch_size=..., ...)` — rfdetr auto-detects COCO vs YOLO format
 - **COCO format**: `train/_annotations.coco.json` + images in same dir; `valid/` same structure
 - **YOLO format**: `data.yaml` + `train/images/`, `train/labels/`, `valid/images/`, `valid/labels/`
+- **Variants**: `nano` (384), `small` (512), `base` (560), `medium` (576), `large` (704) — default resolutions in parentheses
+
+## Architecture
+
+- `config.py` — pydantic models: `TrainConfig`, `ValConfig`, `PredictConfig`
+- `cli.py` — CLI entry point, argument parsing, YAML config generation
+- `train.py` — training wrapper around rfdetr API
+- `val.py` — validation with mAP calculation via supervision
+- `predict.py` — batch inference with YOLO/CSV output, visualization
+- `_inference.py` — rectangular resolution: letterbox/true resize, monkey-patch transforms for rfdetr
+- `ddp.py` — DDP launch helper (torchrun relaunch for multi-GPU)
+- `test_runner.py` — built-in smoke tests (`rfdetr-tool test`)
 
 ## CLI
 
 Entry point: `rfdetr-tool` (defined in `rfdetr_tooling/cli.py`). Syntax: `rfdetr-tool <command> [key=value ...]`
 
-Commands: `train`, `val`, `predict`, `cfg`
+Commands: `train`, `val`, `predict`, `cfg`, `test`
 
 Config priority: CLI args > YAML (`cfg=path.yaml`) > pydantic defaults
+
+### Resolution & resize_mode
+
+- `resolution` accepts int (square) or `WxH` string (rect, e.g. `960x608` → internal tuple `(608, 960)` as `(H, W)`)
+- `resize_mode`: `auto` (default, uses letterbox for rect), `letterbox` (explicit), `true` (stretch without AR preservation)
+- Resolution must be > 0 and divisible by 32
+
+### DDP (multi-GPU training)
+
+- `gpus=N` (N > 1) triggers automatic relaunch via `torchrun --standalone --nproc_per_node=N`
+- Incompatible with `device=cpu` or `device=mps`
 
 ## Validation Strategy
 
@@ -40,7 +63,13 @@ After making changes, run these checks in order:
 # 1. Install entry point
 uv sync
 
-# 2. CLI smoke tests
+# 2. CLI smoke tests (automated)
+rfdetr-tool test                        # all tests
+rfdetr-tool test category=cli           # only CLI tests
+rfdetr-tool test category=linter        # only ruff checks
+rfdetr-tool test category=typecheck     # only mypy
+
+# 3. Or manually:
 rfdetr-tool                                          # help output, exit 0
 rfdetr-tool cfg variant=base                         # generates YAML to stdout
 rfdetr-tool cfg variant=large output=config.yaml     # writes YAML to file
@@ -54,7 +83,7 @@ rfdetr-tool predict                                    # pydantic error "Field r
 rfdetr-tool predict source=x weights=y format=invalid  # pydantic literal error, exit 1
 rfdetr-tool predict source=x weights=y unknown=z       # "Неизвестный параметр", exit 1
 
-# 3. Linters and type checking
+# 4. Linters and type checking
 uv run ruff check rfdetr_tooling/
 uv run ruff format --check rfdetr_tooling/
 uv run mypy rfdetr_tooling/

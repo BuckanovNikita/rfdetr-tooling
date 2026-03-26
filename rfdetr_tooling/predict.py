@@ -538,6 +538,7 @@ def predict(  # noqa: PLR0913, C901
     nms_threshold: float = 0.25,
     agnostic_nms: bool = False,
     resolution: int | tuple[int, int] | None = None,
+    resize_mode: str = "auto",
     batch_size: int = 4,
     device: str = "auto",
     output_dir: str = "predict_output",
@@ -556,6 +557,7 @@ def predict(  # noqa: PLR0913, C901
         nms_threshold: IoU-порог для NMS.
         agnostic_nms: Class-agnostic NMS.
         resolution: Разрешение входа модели (None = по умолчанию).
+        resize_mode: Режим resize ("auto", "letterbox", "true").
         batch_size: Размер батча для инференса.
         device: Устройство ("auto", "cpu", "cuda", "mps").
         output_dir: Директория для результатов.
@@ -606,12 +608,14 @@ def predict(  # noqa: PLR0913, C901
         if rect_resolution is not None:
             from rfdetr_tooling._inference import predict_batch_rect  # noqa: PLC0415
 
+            use_letterbox = resize_mode != "true"
             det_list: list[sv.Detections] = predict_batch_rect(
                 model,
                 pil_images,
                 conf_threshold,
                 rect_resolution[0],
                 rect_resolution[1],
+                letterbox=use_letterbox,
             )
         else:
             det_list = model.predict(pil_images, threshold=conf_threshold)

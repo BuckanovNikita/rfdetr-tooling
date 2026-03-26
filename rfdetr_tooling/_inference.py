@@ -187,17 +187,19 @@ def _letterbox_resize(
     return t, scale, pad_bottom, pad_right
 
 
-def predict_batch_rect(
+def predict_batch_rect(  # noqa: PLR0913
     model: RFDETR,
     images: list[Image.Image],
     threshold: float,
     res_h: int,
     res_w: int,
+    *,
+    letterbox: bool = True,
 ) -> list[sv.Detections]:
-    """Inference с прямоугольным letterbox resize."""
+    """Inference с прямоугольным resize."""
     import supervision as sv  # noqa: PLC0415
 
-    meta: list[tuple[float, int, int]] = []  # (scale, orig_h, orig_w)
+    meta: list[tuple[float, float, int, int]] = []  # (scale_x, scale_y, orig_h, orig_w)
     processed: list[torch.Tensor] = []
     device = model.model.device
 
@@ -205,9 +207,13 @@ def predict_batch_rect(
         t = F.to_tensor(img)
         orig_h, orig_w = t.shape[1], t.shape[2]
         t = t.to(device)
-        t, scale, _, _ = _letterbox_resize(t, res_h, res_w)
+        if letterbox:
+            t, scale, _, _ = _letterbox_resize(t, res_h, res_w)
+            meta.append((scale, scale, orig_h, orig_w))
+        else:
+            t = F.resize(t, [res_h, res_w])
+            meta.append((res_w / orig_w, res_h / orig_h, orig_h, orig_w))
         t = F.normalize(t, _MEANS, _STDS)
-        meta.append((scale, orig_h, orig_w))
         processed.append(t)
 
     canvas_sizes = torch.tensor([[res_h, res_w]] * len(processed), device=device)
@@ -220,16 +226,15 @@ def predict_batch_rect(
         )
 
     detections: list[sv.Detections] = []
-    for result, (scale, orig_h, orig_w) in zip(results, meta, strict=True):
+    for result, (scale_x, scale_y, orig_h, orig_w) in zip(results, meta, strict=True):
         scores = result["scores"]
         labels = result["labels"]
         boxes = result["boxes"]
         keep = scores > threshold
 
         xyxy = boxes[keep].float().cpu().numpy()
-        # Обратное преобразование: canvas coords → original image coords
-        xyxy[:, [0, 2]] /= scale
-        xyxy[:, [1, 3]] /= scale
+        xyxy[:, [0, 2]] /= scale_x
+        xyxy[:, [1, 3]] /= scale_y
         xyxy[:, [0, 2]] = np.clip(xyxy[:, [0, 2]], 0, orig_w)
         xyxy[:, [1, 3]] = np.clip(xyxy[:, [1, 3]], 0, orig_h)
 
@@ -245,6 +250,8 @@ def predict_batch_rect(
 def _make_rect_transforms(
     res_h: int,
     res_w: int,
+    *,
+    use_letterbox: bool = True,
 ) -> Callable[..., Any]:
     """Возвращает patched make_coco_transforms для прямоугольного resize."""
 
@@ -270,33 +277,35 @@ def _make_rect_transforms(
         to_float = ToDtype(torch.float32, scale=True)
         normalize = Normalize()
 
-        _register_letterbox_transform()
-
-        letterbox_train = {
-            "LetterboxResize": {
-                "height": res_h,
-                "width": res_w,
-                "fill": 114,
-                "position": "random",
+        if use_letterbox:
+            _register_letterbox_transform()
+            train_resize: dict[str, Any] = {
+                "LetterboxResize": {
+                    "height": res_h,
+                    "width": res_w,
+                    "fill": 114,
+                    "position": "random",
+                }
             }
-        }
-        letterbox_val = {
-            "LetterboxResize": {
-                "height": res_h,
-                "width": res_w,
-                "fill": 114,
-                "position": "top_left",
+            val_resize: dict[str, Any] = {
+                "LetterboxResize": {
+                    "height": res_h,
+                    "width": res_w,
+                    "fill": 114,
+                    "position": "top_left",
+                }
             }
-        }
+        else:
+            train_resize = {"Resize": {"height": res_h, "width": res_w}}
+            val_resize = {"Resize": {"height": res_h, "width": res_w}}
 
         if image_set == "train":
             resolved_aug = aug_config if aug_config is not None else AUG_CONFIG
 
-            option_a = letterbox_train
             max_side = max(res_h, res_w)
             crop_min = min(384, res_h, res_w)
             crop_max = min(600, max_side)
-            option_b = {
+            option_b: dict[str, Any] = {
                 "Sequential": {
                     "transforms": [
                         {"SmallestMaxSize": {"max_size": [400, 500, 600]}},
@@ -320,7 +329,7 @@ def _make_rect_transforms(
                 }
             }
             resize_config: list[dict[str, Any]] = [
-                {"OneOf": {"transforms": [option_a, option_b]}}
+                {"OneOf": {"transforms": [train_resize, option_b]}}
             ]
             resize_wrappers = AlbumentationsWrapper.from_config(resize_config)
             aug_wrappers = AlbumentationsWrapper.from_config(resolved_aug)
@@ -329,7 +338,7 @@ def _make_rect_transforms(
             )
 
         if image_set in ("val", "test", "val_speed"):
-            resize_wrappers = AlbumentationsWrapper.from_config([letterbox_val])
+            resize_wrappers = AlbumentationsWrapper.from_config([val_resize])
             return Compose([*resize_wrappers, to_image, to_float, normalize])
 
         msg = f"unknown image_set: {image_set}"
@@ -339,13 +348,15 @@ def _make_rect_transforms(
 
 
 @contextmanager
-def rect_resolution_patch(res_h: int, res_w: int) -> Iterator[None]:
+def rect_resolution_patch(
+    res_h: int, res_w: int, *, letterbox: bool = True
+) -> Iterator[None]:
     """Context manager: подменяет rfdetr transform builders на прямоугольные."""
     import rfdetr.datasets.coco as coco_mod  # noqa: PLC0415
 
     orig_square = coco_mod.make_coco_transforms_square_div_64
     orig_normal = coco_mod.make_coco_transforms
-    patched = _make_rect_transforms(res_h, res_w)
+    patched = _make_rect_transforms(res_h, res_w, use_letterbox=letterbox)
 
     coco_mod.make_coco_transforms_square_div_64 = patched
     coco_mod.make_coco_transforms = patched

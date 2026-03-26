@@ -226,3 +226,4 @@ coco8/
 
 # Claude Code
 .claude/
+experiments/**

@@ -23,6 +23,7 @@ _EXCLUDED_FIELDS = {
     "gpus",
     "clearml",
     "sync_bn",
+    "resize_mode",
 }
 
 
@@ -104,6 +105,7 @@ def train(  # noqa: PLR0913, C901
     num_workers: int = 2,
     multi_scale: bool = True,
     resolution: int | tuple[int, int] | None = None,
+    resize_mode: str = "auto",
     progress_bar: bool = False,
     **model_extra: Any,  # noqa: ANN401
 ) -> None:
@@ -144,6 +146,7 @@ def train(  # noqa: PLR0913, C901
         num_workers: Количество DataLoader workers.
         multi_scale: Multi-scale аугментация.
         resolution: Разрешение входа модели.
+        resize_mode: Режим resize ("auto", "letterbox", "true").
         progress_bar: Показывать progress bar.
         **model_extra: Дополнительные kwargs для rfdetr model.train().
 
@@ -223,8 +226,9 @@ def train(  # noqa: PLR0913, C901
     if rect_resolution is not None:
         from rfdetr_tooling._inference import rect_resolution_patch  # noqa: PLC0415
 
+        use_letterbox = resize_mode != "true"
         res_h, res_w = rect_resolution
-        with rect_resolution_patch(res_h, res_w):
+        with rect_resolution_patch(res_h, res_w, letterbox=use_letterbox):
             model.train(**kwargs)
     else:
         model.train(**kwargs)

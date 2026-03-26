@@ -10,6 +10,8 @@ Variant = Literal["nano", "small", "base", "medium", "large"]
 
 Resolution = int | tuple[int, int]
 
+ResizeMode = Literal["auto", "letterbox", "true"]
+
 VARIANT_RESOLUTION: dict[str, int] = {
     "nano": 384,
     "small": 512,
@@ -100,6 +102,7 @@ class TrainConfig(BaseModel):
     num_workers: int = 2
     multi_scale: bool = True
     resolution: Resolution | None = Field(default=None)
+    resize_mode: ResizeMode = "auto"
     progress_bar: bool = False
 
     @field_validator("resolution", mode="before")
@@ -126,6 +129,7 @@ class PredictConfig(BaseModel):
     nms_threshold: float = 0.25
     agnostic_nms: bool = False
     resolution: Resolution | None = Field(default=None)
+    resize_mode: ResizeMode = "auto"
     batch_size: int = 4
     device: str = "auto"
     output_dir: str = "predict_output"
@@ -154,6 +158,7 @@ class ValConfig(BaseModel):
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     batch_size: int = 4
     resolution: Resolution | None = Field(default=None)
+    resize_mode: ResizeMode = "auto"
 
     @field_validator("resolution", mode="before")
     @classmethod
