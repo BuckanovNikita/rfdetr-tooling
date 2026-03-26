@@ -137,7 +137,8 @@ names: ["cat", "dog", "bird"]
 |----------|-----|--------------|----------|
 | `num_workers` | `int` | `2` | Количество воркеров загрузчика данных |
 | `multi_scale` | `bool` | `True` | Мультимасштабная аугментация |
-| `resolution` | `int` | *(зависит от варианта)* | Разрешение входа (переопределяет значение варианта) |
+| `resolution` | `int\|WxH` | *(зависит от варианта)* | Разрешение входа: int (квадрат) или WxH (прямоугольник, например `960x608`) |
+| `resize_mode` | `str` | `auto` | Режим resize при прямоугольном resolution: `auto`, `letterbox`, `true` |
 
 ### Чекпоинты
 
@@ -165,12 +166,20 @@ names: ["cat", "dog", "bird"]
 | `project` | `str \| None` | `None` | Имя проекта для трекеров экспериментов |
 | `run` | `str \| None` | `None` | Имя запуска для трекеров экспериментов |
 
-### Устройство и точность
+### Устройство
 
 | Параметр | Тип | По умолчанию | Описание |
 |----------|-----|--------------|----------|
 | `device` | `str` | `"auto"` | Устройство: `"auto"`, `"cpu"`, `"cuda"` или `"mps"` |
-| `amp` | `bool` | `True` | Автоматическая смешанная точность |
+
+### DDP (multi-GPU)
+
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|--------------|----------|
+| `gpus` | `int` | `1` | Количество GPU. При >1 — автоматический перезапуск через torchrun |
+| `sync_bn` | `bool` | `True` | Синхронизация BatchNorm при DDP |
+
+При `gpus > 1` CLI перезапускается через `torchrun --standalone --nproc_per_node=N`. Несовместимо с `device=cpu` и `device=mps`.
 
 ### Продвинутые
 
@@ -178,7 +187,31 @@ names: ["cat", "dog", "bird"]
 |----------|-----|--------------|----------|
 | `gradient_checkpointing` | `bool` | `False` | Экономия памяти за счет пересчета активаций |
 | `drop_path` | `float` | `0.0` | Drop path для регуляризации |
-| `group_detr` | `int` | `13` | Количество групп DETR |
+| `seed` | `int\|None` | `None` | Random seed |
+| `progress_bar` | `bool` | `False` | Показывать progress bar |
+
+## Прямоугольный resolution
+
+Параметр `resolution` принимает строку `WxH` (например `960x608`), которая парсится в кортеж `(H, W)`. Значение должно быть кратно 32.
+
+Параметр `resize_mode` контролирует способ приведения изображений к целевому размеру:
+
+- `auto` (по умолчанию) — letterbox для прямоугольного, стандартный resize для квадратного
+- `letterbox` — сохраняет пропорции, дополняет padding (серый, 114)
+- `true` — растягивает без сохранения пропорций
+
+При прямоугольном resolution автоматически отключается `multi_scale`.
+
+```bash
+# CLI
+rfdetr-tool train data=./dataset resolution=960x608
+rfdetr-tool train data=./dataset resolution=960x608 resize_mode=true
+```
+
+```python
+# Python API
+train("./dataset", resolution="960x608", resize_mode="letterbox")
+```
 
 ## Полный пример
 
@@ -195,6 +228,8 @@ train(
     lr_encoder=1e-4,
     warmup_epochs=5.0,
     grad_accum_steps=2,
+    resolution="960x608",
+    resize_mode="letterbox",
     early_stopping=True,
     early_stopping_patience=15,
     wandb=True,

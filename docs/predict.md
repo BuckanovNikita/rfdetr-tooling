@@ -28,7 +28,8 @@ rfdetr-tool predict source=./images weights=model.pth visualize=true
 | `conf_threshold` | `float` | `0.01` | Минимальная уверенность класса (передаётся в `model.predict`) |
 | `nms_threshold` | `float` | `0.25` | IoU порог для NMS post-processing |
 | `agnostic_nms` | `bool` | `false` | Class-agnostic NMS (единый пул вместо per-class) |
-| `resolution` | `int\|None` | `None` | Размер изображения для инференса (`None` → дефолт варианта) |
+| `resolution` | `int\|WxH` | `None` | Разрешение: int (квадрат) или WxH (прямоугольник, например `960x608`) |
+| `resize_mode` | `str` | `auto` | Режим resize: `auto`, `letterbox`, `true` |
 | `batch_size` | `int` | `4` | Количество изображений в одном батче |
 | `device` | `str` | `auto` | Устройство: `auto`, `cpu`, `cuda`, `cuda:0`, `cuda:1`, `mps` |
 | `output_dir` | `str` | `predict_output` | Директория для результатов |
@@ -121,6 +122,12 @@ rfdetr-tool predict source=./images weights=model.pth conf_threshold=0.25 nms_th
 
 # Батч + разрешение + устройство
 rfdetr-tool predict source=./images weights=model.pth batch_size=16 resolution=640 device=cuda:1
+
+# Прямоугольный resolution (letterbox)
+rfdetr-tool predict source=./images weights=model.pth resolution=960x608
+
+# Прямоугольный resolution (true resize, без сохранения AR)
+rfdetr-tool predict source=./images weights=model.pth resolution=960x608 resize_mode=true
 
 # Class-agnostic NMS
 rfdetr-tool predict source=./images weights=model.pth agnostic_nms=true
